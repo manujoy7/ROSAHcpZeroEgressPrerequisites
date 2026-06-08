@@ -73,7 +73,7 @@ aws service-quotas request-service-quota-increase \
 
 ### 2.4 ROSA HCP Activation and AWS Account Linking
 
-This is a one-time process that connects your AWS billing account to your Red Hat account.
+This is a one-time process that connects your AWS billing account to your Red Hat account through the AWS Marketplace. **All six steps must be completed in order** — skipping any step will result in a `billing account not linked to organization at the aws marketplace` error during cluster creation.
 
 **Step 1 — Enable ROSA on the AWS Console**
 
@@ -86,17 +86,81 @@ This is a one-time process that connects your AWS billing account to your Red Ha
    - ELB service-linked role exists (created automatically)
    - Service quotas meet requirements (use the region switcher to check `ap-southeast-1` specifically)
 
-**Step 2 — Link your Red Hat and AWS accounts**
+**Step 2 — Subscribe to ROSA HCP on the AWS Marketplace**
 
-1. Click **"Continue to Red Hat"** on the AWS ROSA confirmation page
-2. Log into your Red Hat account (or register a new one)
-3. Review the terms and conditions, then click **"Connect accounts"**
-4. Accept the managed services terms and conditions if prompted
-5. You will see a confirmation that AWS prerequisites are completed
+There are **two separate** AWS Marketplace listings for ROSA. You must subscribe to the **HCP** listing specifically:
+
+| Product | Marketplace URL |
+|---|---|
+| ROSA with Hosted Control Planes (HCP) — **Required** | [Subscribe here](https://aws.amazon.com/marketplace/pp/prodview-juiwfhpeizxro) |
+| ROSA Classic (not needed for HCP clusters) | [aws.amazon.com/marketplace/pp/prodview-uatzr5jrphkcg](https://aws.amazon.com/marketplace/pp/prodview-uatzr5jrphkcg) |
+
+1. Open the [ROSA HCP Marketplace listing](https://aws.amazon.com/marketplace/pp/prodview-juiwfhpeizxro)
+2. Click **"View purchase options"** or **"Continue to Subscribe"**
+3. Review the pricing terms (on-demand pricing, no upfront commitment)
+4. Click **"Subscribe"**
+5. Wait for the subscription to become **Active** (this can take 1–5 minutes)
+
+> **Important**: Subscribing to ROSA Classic does **not** enable ROSA HCP. You must subscribe to the HCP listing above. If you see `billing account not linked` errors during cluster creation, this is the most common cause.
+
+**Step 3 — Link your Red Hat and AWS accounts**
+
+1. After the marketplace subscription is active, return to [AWS Console > ROSA](https://console.aws.amazon.com/rosa/)
+2. Click **"Continue to Red Hat"** on the AWS ROSA confirmation page
+3. Log into your Red Hat account (or register a new one)
+4. Review the terms and conditions, then click **"Connect accounts"**
+5. Accept the managed services terms and conditions if prompted
+6. You will see a confirmation that AWS prerequisites are completed
 
 > **Important**: Only a single AWS billing account can be associated with a Red Hat account. Red Hat accounts belonging to the same Red Hat organization will be linked with the same AWS account. Typically, an organizational AWS payer account is used for billing rather than individual end-user accounts.
 
-**Step 3 — Verify the ELB service-linked role**
+**Step 4 — Create the OCM Role (Organization Linking)**
+
+The OCM role links your Red Hat organization to your AWS account for billing and cluster management. This must be created **before** any cluster deployment.
+
+```bash
+rosa login --token="<YOUR_OCM_TOKEN>"
+
+rosa list ocm-role
+```
+
+If no OCM role is listed, create one with admin privileges:
+
+```bash
+rosa create ocm-role --admin --mode auto --yes
+```
+
+Verify the role is created and linked:
+
+```bash
+rosa list ocm-role
+```
+
+Expected output should show a role with `Linked` status as `Yes` and `Admin` as `Yes`.
+
+**Step 5 — Create the User Role**
+
+The user role links your Red Hat user identity to your AWS IAM identity, enabling OCM to verify your AWS account ownership.
+
+```bash
+rosa list user-role
+```
+
+If no user role is listed, create one:
+
+```bash
+rosa create user-role --mode auto --yes
+```
+
+Verify the role is created and linked:
+
+```bash
+rosa list user-role
+```
+
+Expected output should show a role with `Linked` status as `Yes`.
+
+**Step 6 — Verify the ELB service-linked role**
 
 ```bash
 aws iam get-role --role-name AWSServiceRoleForElasticLoadBalancing --region ap-southeast-1
@@ -107,6 +171,26 @@ If the role does not exist:
 ```bash
 aws iam create-service-linked-role --aws-service-name elasticloadbalancing.amazonaws.com
 ```
+
+**Verification — Confirm all linking prerequisites are complete**
+
+Run these commands to confirm everything is properly linked before proceeding:
+
+```bash
+echo "=== OCM Role ==="
+rosa list ocm-role
+
+echo "=== User Role ==="
+rosa list user-role
+
+echo "=== AWS Account ID ==="
+aws sts get-caller-identity --query Account --output text
+
+echo "=== ROSA Whoami ==="
+rosa whoami
+```
+
+The `rosa whoami` output should show your Red Hat account, AWS account ID, and the linked OCM organization. If any of these are missing or show `Not Linked`, revisit the steps above.
 
 ### 2.5 AWS SCP Verification
 
