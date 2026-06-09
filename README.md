@@ -495,9 +495,9 @@ The following layout uses `/25` private subnets to maximize IP capacity for work
 
 | Subnet | CIDR | Size | AZ | Type | Purpose |
 |---|---|---|---|---|---|
-| Private Subnet 1 | `10.0.0.0/25` | 128 IPs | ap-southeast-1a | Private | ROSA workers, VPC endpoints |
-| Private Subnet 2 | `10.0.0.128/25` | 128 IPs | ap-southeast-1b | Private | ROSA workers, VPC endpoints |
-| Private Subnet 3 | `10.0.1.0/25` | 128 IPs | ap-southeast-1c | Private | ROSA workers, VPC endpoints |
+| Private Subnet 1 | `10.0.0.0/25` | 128 IPs | ap-southeast-1a | Private | ROSA workers, VPC endpoint ENIs |
+| Private Subnet 2 | `10.0.0.128/25` | 128 IPs | ap-southeast-1b | Private | ROSA workers, VPC endpoint ENIs |
+| Private Subnet 3 | `10.0.1.0/25` | 128 IPs | ap-southeast-1c | Private | ROSA workers, VPC endpoint ENIs |
 | Public Subnet | `10.0.1.128/26` | 64 IPs | ap-southeast-1a | Public | Jump host, NAT Gateway (if needed) |
 | Reserved | `10.0.1.192/26` | 64 IPs | — | — | Future use |
 
@@ -510,30 +510,37 @@ The following layout uses `/25` private subnets to maximize IP capacity for work
 | Total IPs in `/25` | 128 | |
 | AWS reserved | -5 | First 4 + last address |
 | **Usable IPs** | **123** | |
-| Interface VPC endpoints (EC2, KMS, STS, ECR API, ECR DKR) | -5 | 1 ENI per endpoint per AZ |
+| Interface VPC endpoints (STS, ECR API, ECR DKR) | -3 | 1 ENI per endpoint per AZ (add 2 if using CloudWatch endpoints) |
 | ROSA PrivateLink API endpoint | -1 | Created by ROSA in customer subnet |
 | NLB for Ingress Controller | -8 | NLBs can scale up to ~8 nodes per AZ under load |
-| **Available for worker nodes** | **~109** | Per AZ |
-| **Total workers across 3 AZs** | **~327** | Within ROSA HCP 500-node limit |
+| **Available for worker nodes** | **~111** | Per AZ |
+| **Total workers across 3 AZs** | **~333** | Within ROSA HCP 500-node limit |
 
-For the initial deployment (3 workers of `m5.2xlarge`, one per AZ), each private subnet uses only ~20 IPs (5 AWS + 5 endpoints + 1 PrivateLink + 1 NLB + 1 worker + overhead), leaving **~100+ IPs per AZ for future scaling**.
+For the initial deployment (3 workers of `m5.2xlarge`, one per AZ), each private subnet uses only ~18 IPs (5 AWS + 3 endpoints + 1 PrivateLink + 1 NLB + 1 worker + overhead), leaving **~100+ IPs per AZ for future scaling**.
 
 > **Comparison**: With `/26` subnets (64 IPs, 59 usable), only ~40 IPs per AZ would remain for workers after overhead — workable for small clusters, but with little room for scaling or additional services.
 
 ### 5.3 VPC Endpoints
 
-Zero-egress clusters require **6 VPC endpoints** (created in the VPC before cluster installation). Interface endpoints create one [ENI](https://docs.aws.amazon.com/vpc/latest/privatelink/interface-endpoints.html) per subnet; the S3 Gateway endpoint uses a route table entry only.
+Zero-egress clusters require **4 VPC endpoints** (created in the VPC before cluster installation). Interface endpoints create one [ENI](https://docs.aws.amazon.com/vpc/latest/privatelink/interface-endpoints.html) per subnet; the S3 Gateway endpoint uses a route table entry only.
 
 | Service | Endpoint Type | Service Name | ENIs per AZ |
 |---|---|---|---|
 | S3 | **Gateway** | `com.amazonaws.ap-southeast-1.s3` | 0 (route table entry only) |
-| EC2 | **Interface** | `com.amazonaws.ap-southeast-1.ec2` | 1 |
-| KMS | **Interface** | `com.amazonaws.ap-southeast-1.kms` | 1 |
 | STS | **Interface** | `com.amazonaws.ap-southeast-1.sts` | 1 |
 | ECR API | **Interface** | `com.amazonaws.ap-southeast-1.ecr.api` | 1 |
 | ECR Docker | **Interface** | `com.amazonaws.ap-southeast-1.ecr.dkr` | 1 |
 
-> **Total interface endpoint ENIs**: 5 endpoints × 3 AZs = **15 ENIs** across the cluster.
+> **Note on EC2 and KMS endpoints**: These are **not required** in the customer VPC. In ROSA HCP, EC2 and KMS operations are performed by the Red Hat-managed control plane, which resides in Red Hat's own VPC with its own endpoints.
+
+> **Optional — CloudWatch endpoints**: If you are using the [Validated Pattern](https://github.com/rh-mobb/validated-pattern-terraform-rosa) with control plane log forwarding to CloudWatch enabled, add the following interface endpoints:
+>
+> | Service | Endpoint Type | Service Name | ENIs per AZ |
+> |---|---|---|---|
+> | CloudWatch Logs | **Interface** | `com.amazonaws.ap-southeast-1.logs` | 1 |
+> | CloudWatch Monitoring | **Interface** | `com.amazonaws.ap-southeast-1.monitoring` | 1 |
+
+> **Total interface endpoint ENIs (base)**: 3 endpoints × 3 AZs = **9 ENIs** across the cluster (or 15 ENIs if CloudWatch endpoints are included).
 
 All interface endpoints must have `PrivateDnsEnabled: true` so that standard AWS service DNS names resolve to the private endpoint IPs within the VPC.
 
@@ -679,7 +686,7 @@ rosa create network \
 
 This command takes approximately 5 minutes and provides status updates. When complete, it outputs the created resource IDs including VPC ID, subnet IDs, and VPC endpoint IDs.
 
-> **Note**: `rosa create network` with a `/23` CIDR may auto-size subnets differently than the layout in Section 5.0. Verify the created subnet CIDRs and ensure they meet your requirements. If precise subnet sizing is needed, use Terraform (Option A). The CloudFormation stack creates all 6 required VPC endpoints (S3, EC2, KMS, STS, ECR API, ECR DKR) automatically. It also creates a public subnet, Internet Gateway, and NAT Gateway — the NAT Gateway is part of the standard template but is **not used** by zero-egress workers (their private subnets have no route to the NAT). The public subnet can be used for the jump host.
+> **Note**: `rosa create network` with a `/23` CIDR may auto-size subnets differently than the layout in Section 5.0. Verify the created subnet CIDRs and ensure they meet your requirements. If precise subnet sizing is needed, use Terraform (Option A). The CloudFormation stack creates VPC endpoints automatically (S3, STS, ECR API, ECR DKR, and may also include EC2 and KMS endpoints which are optional — see Section 5.3). It also creates a public subnet, Internet Gateway, and NAT Gateway — the NAT Gateway is part of the standard template but is **not used** by zero-egress workers (their private subnets have no route to the NAT). The public subnet can be used for the jump host.
 
 **Tag private subnets** (if not already tagged):
 
@@ -709,7 +716,8 @@ aws ec2 describe-vpc-endpoints \
   --query 'VpcEndpoints[*].{Service:ServiceName,Type:VpcEndpointType,State:State}' \
   --output table --region $REGION
 
-# Expected: 6 endpoints (s3 Gateway, ec2 Interface, kms Interface, sts Interface, ecr.api Interface, ecr.dkr Interface)
+# Expected: 4 endpoints minimum (s3 Gateway, sts Interface, ecr.api Interface, ecr.dkr Interface)
+# Optional: logs Interface, monitoring Interface (if CloudWatch forwarding is enabled)
 
 # Verify private subnets
 aws ec2 describe-subnets \
@@ -1634,7 +1642,7 @@ cd ~/terraform-vpc-example/zero-egress
 terraform destroy -auto-approve
 
 # If created manually, delete in reverse order:
-# VPC endpoints → subnets → route tables → IGW → security groups → VPC
+# VPC endpoints (STS, ECR API, ECR DKR, S3, and any optional endpoints) → subnets → route tables → IGW → security groups → VPC
 
 # Step 7: Delete ECR repositories (if created)
 aws ecr delete-repository --repository-name $ECR_REPOSITORY --force --region $REGION
@@ -1689,7 +1697,7 @@ If insufficient, request an increase and wait for approval before retrying.
 
 - Interface endpoints must have `PrivateDnsEnabled: true`
 - The security group must allow inbound traffic from the VPC CIDR on port 443
-- Verify endpoints exist for all 6 required services (S3, EC2, KMS, STS, ECR API, ECR DKR)
+- Verify endpoints exist for all 4 required services (S3, STS, ECR API, ECR DKR) and optionally CloudWatch Logs and Monitoring if log forwarding is enabled
 
 ### Cannot Access Cluster API from Jump Host
 
