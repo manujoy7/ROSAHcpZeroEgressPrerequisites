@@ -247,9 +247,9 @@ if [[ -n "$VPC_ID" ]]; then
 
   # DNS settings
   DNS_HOSTNAMES=$(aws ec2 describe-vpc-attribute --vpc-id "$VPC_ID" --attribute enableDnsHostnames \
-    --query 'EnableDnsHostnames.Value' --output text 2>/dev/null || echo "false")
+    --output json 2>/dev/null | jq -r '.EnableDnsHostnames.Value // false')
   DNS_SUPPORT=$(aws ec2 describe-vpc-attribute --vpc-id "$VPC_ID" --attribute enableDnsSupport \
-    --query 'EnableDnsSupport.Value' --output text 2>/dev/null || echo "false")
+    --output json 2>/dev/null | jq -r '.EnableDnsSupport.Value // false')
 
   if [[ "$DNS_HOSTNAMES" == "true" ]]; then
     pass "VPC DNS Hostnames: enabled"
@@ -435,19 +435,19 @@ header "11. ROSA VERIFICATION COMMANDS"
 
 if command -v rosa &>/dev/null; then
   ROSA_VERIFY=$(rosa verify permissions 2>&1) || true
-  if echo "$ROSA_VERIFY" | grep -qi "sufficient"; then
+  if echo "$ROSA_VERIFY" | grep -qi "sufficient\|have required permissions"; then
     pass "rosa verify permissions: sufficient"
-  elif echo "$ROSA_VERIFY" | grep -qi "error\|fail"; then
+  elif echo "$ROSA_VERIFY" | grep -qi "error\|fail\|denied"; then
     fail "rosa verify permissions: failed — check IAM permissions"
   else
     info "rosa verify permissions: $(echo "$ROSA_VERIFY" | head -1)"
   fi
 
   ROSA_QUOTA=$(rosa verify quota --region="$REGION" 2>&1) || true
-  if echo "$ROSA_QUOTA" | grep -qi "sufficient"; then
-    pass "rosa verify quota: sufficient"
-  elif echo "$ROSA_QUOTA" | grep -qi "error\|fail"; then
-    fail "rosa verify quota: failed — check service quotas"
+  if echo "$ROSA_QUOTA" | grep -qi "sufficient\|validated"; then
+    pass "rosa verify quota: sufficient in $REGION"
+  elif echo "$ROSA_QUOTA" | grep -qi "error\|fail\|insufficient"; then
+    fail "rosa verify quota: failed — check service quotas in $REGION"
   else
     info "rosa verify quota: $(echo "$ROSA_QUOTA" | head -1)"
   fi
