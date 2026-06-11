@@ -8,11 +8,11 @@ variable "cluster_name" {
 
 variable "openshift_version" {
   type        = string
-  default     = "4.19.3"
-  description = "OpenShift version (e.g. 4.19.3)."
+  default     = "4.20.24"
+  description = "OpenShift version (e.g. 4.20.24)."
   validation {
     condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+$", var.openshift_version))
-    error_message = "openshift_version must be <major>.<minor>.<patch> (e.g. 4.19.3)."
+    error_message = "openshift_version must be <major>.<minor>.<patch> (e.g. 4.20.24)."
   }
 }
 

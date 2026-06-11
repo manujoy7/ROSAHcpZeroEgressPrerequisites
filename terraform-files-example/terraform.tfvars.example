@@ -26,7 +26,7 @@
 # Cluster Identity
 ##############################################################
 cluster_name      = "my-rosa-cluster"
-openshift_version = "4.19.3"
+openshift_version = "4.20.24"
 
 ##############################################################
 # AWS Account & Billing
