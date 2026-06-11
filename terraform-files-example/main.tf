@@ -5,8 +5,8 @@
 # No VPC module — customer provides pre-created subnet IDs directly.
 
 locals {
-  account_role_prefix  = "${var.cluster_name}-account"
-  operator_role_prefix = "${var.cluster_name}-operator"
+  account_role_prefix  = coalesce(var.account_role_prefix, "${var.cluster_name}-account")
+  operator_role_prefix = coalesce(var.operator_role_prefix, "${var.cluster_name}-operator")
 }
 
 ############################
@@ -24,32 +24,32 @@ module "hcp" {
   aws_billing_account_id     = var.aws_billing_account_id
   replicas                   = var.replicas
   compute_machine_type       = var.compute_machine_type
-  private                    = true
-  ec2_metadata_http_tokens   = "required"
+  private                    = var.private
+  ec2_metadata_http_tokens   = var.ec2_metadata_http_tokens
+  properties                 = var.properties
 
-  properties = {
-    zero_egress = "true"
-  }
-
-  create_admin_user          = true
-  admin_credentials_username = "cluster-admin"
+  create_admin_user          = var.create_admin_user
+  admin_credentials_username = var.admin_credentials_username
   admin_credentials_password = random_password.password.result
 
-  wait_for_create_complete            = true
-  wait_for_std_compute_nodes_complete = false
+  wait_for_create_complete            = var.wait_for_create_complete
+  wait_for_std_compute_nodes_complete = var.wait_for_std_compute_nodes_complete
 
-  default_ingress_listening_method = "internal"
+  default_ingress_listening_method = var.default_ingress_listening_method
 
   service_cidr = var.service_cidr
   pod_cidr     = var.pod_cidr
   host_prefix  = var.host_prefix
 
   // STS configuration
-  create_account_roles  = true
+  create_account_roles  = var.create_account_roles
   account_role_prefix   = local.account_role_prefix
-  create_oidc           = true
-  create_operator_roles = true
+  create_oidc           = var.create_oidc
+  managed_oidc          = var.managed_oidc
+  create_operator_roles = var.create_operator_roles
   operator_role_prefix  = local.operator_role_prefix
+
+  etcd_encryption = var.etcd_encryption
 
   tags = var.tags
 }
