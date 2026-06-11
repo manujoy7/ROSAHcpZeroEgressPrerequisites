@@ -1,0 +1,125 @@
+# =============================================================================
+# ROSA HCP Zero Egress — BYO VPC (official terraform-redhat/rosa-hcp/rhcs)
+# =============================================================================
+# This tfvars file configures a ROSA HCP cluster with zero egress using a
+# customer pre-created VPC. Update all placeholder values before applying.
+#
+# Prerequisites (customer responsibility before running terraform):
+#   - VPC with DNS Hostnames and DNS Support enabled
+#   - 3 private subnets (one per AZ, minimum /25 each)
+#   - Subnet tag: kubernetes.io/role/internal-elb = 1
+#   - VPC Endpoints: S3 (Gateway), STS, ECR API, ECR DKR (Interface, PrivateDNS)
+#   - Endpoint security groups allowing HTTPS 443 from VPC CIDR
+#   - No IGW or NAT routes on private subnets
+#   - AWS Marketplace ROSA HCP subscription active
+#   - Red Hat account linked to AWS billing account
+#   - RHCS_TOKEN environment variable set (rosa login token)
+#
+# Usage:
+#   export RHCS_TOKEN="eyJhbGci..."
+#   terraform init
+#   terraform plan -var-file="terraform.tfvars" -out=tfplan
+#   terraform apply tfplan
+# =============================================================================
+
+##############################################################
+# Cluster Identity
+##############################################################
+cluster_name      = "my-rosa-cluster"
+openshift_version = "4.19.3"
+
+##############################################################
+# AWS Account & Billing
+##############################################################
+aws_billing_account_id = "123456789012"               # AWS account linked to Red Hat marketplace
+# aws_account_id       = "123456789012"               # defaults to caller identity if omitted
+
+##############################################################
+# BYO VPC — Customer Pre-Created Network
+##############################################################
+# Pass only private subnet IDs for zero-egress (no public subnets)
+aws_subnet_ids = [
+  "subnet-0aaa1111bbb22222a",                         # ap-southeast-1a
+  "subnet-0bbb2222ccc33333b",                         # ap-southeast-1b
+  "subnet-0ccc3333ddd44444c",                         # ap-southeast-1c
+]
+
+aws_availability_zones = [
+  "ap-southeast-1a",
+  "ap-southeast-1b",
+  "ap-southeast-1c",
+]
+
+# machine_cidr must match VPC CIDR
+machine_cidr = "10.0.0.0/23"
+
+##############################################################
+# Zero Egress & Private Cluster
+##############################################################
+private = true                                         # PrivateLink API endpoint
+
+properties = {
+  zero_egress = "true"                                 # enables zero egress mode
+}
+
+##############################################################
+# Worker Nodes
+##############################################################
+replicas             = 3                               # must be multiple of subnet count
+compute_machine_type = "m5.xlarge"
+ec2_metadata_http_tokens = "required"                  # IMDSv2 only (security best practice)
+
+##############################################################
+# Network CIDRs (OpenShift internal — defaults are usually fine)
+##############################################################
+service_cidr = "172.30.0.0/16"
+pod_cidr     = "10.128.0.0/14"
+host_prefix  = 23
+
+##############################################################
+# Ingress
+##############################################################
+default_ingress_listening_method = "internal"          # internal for private/zero-egress
+
+##############################################################
+# Admin User
+##############################################################
+create_admin_user          = true
+admin_credentials_username = "cluster-admin"
+# admin_credentials_password = "MySecur3P@ssword!"    # omit to auto-generate
+
+##############################################################
+# STS / IAM Roles
+##############################################################
+create_account_roles  = true
+account_role_prefix   = "my-rosa-cluster-account"
+create_operator_roles = true
+operator_role_prefix  = "my-rosa-cluster-operator"
+
+##############################################################
+# OIDC Configuration
+##############################################################
+create_oidc = true
+managed_oidc = true                                    # Red Hat managed OIDC (recommended)
+
+##############################################################
+# Encryption (optional)
+##############################################################
+etcd_encryption = false
+# etcd_kms_key_arn = "arn:aws:kms:ap-southeast-1:123456789012:key/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+# kms_key_arn      = "arn:aws:kms:ap-southeast-1:123456789012:key/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+##############################################################
+# Cluster Behavior
+##############################################################
+wait_for_create_complete            = true
+wait_for_std_compute_nodes_complete = false             # false for zero-egress (nodes take longer)
+
+##############################################################
+# Tags
+##############################################################
+tags = {
+  Environment = "production"
+  ManagedBy   = "terraform"
+  Project     = "rosa-hcp-zero-egress"
+}
